@@ -9,12 +9,12 @@
 ;; base window structure
 ;; all implementations should inherit from it
 (defstruct window
-  width
-  height
-  title
+  (width 0 :type integer)
+  (height 0 :type integer)
+  (title "" :type string)
   gl-context
   pushed-event
-  (fullscreen nil)
+  (fullscreen nil :type boolean)
   (previous-video-mode nil))
 
 ;; Helper macros from bordeaux-threads

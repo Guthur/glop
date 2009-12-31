@@ -47,18 +47,26 @@
   (screen-info :pointer)
   (count (:pointer :int)))
 
+(declaim (ftype (function (foreign-pointer integer) (values integer integer integer)) 
+		get-current-display-mode))
 (defun get-current-display-mode (dpy screen)
-  (values (display-width dpy screen) (display-height dpy screen) 
-	  (default-depth dpy screen)))
+  (values (default-depth dpy screen) 
+	  (display-width dpy screen) (display-height dpy screen)))
 
+(declaim (ftype (function (foreign-pointer integer integer integer) null) set-video-mode))
 (defun set-video-mode (dpy screen mode rate)
+  (declare (ignorable rate))
   (let* ((root (root-window dpy screen))
 	 (sc (xrr-get-screen-info dpy root)))
     (xrr-set-screen-config dpy sc root mode 
 			   (foreign-enum-value 'rr-rotation :rotate-0) 0)
-    (xrr-free-screen-config-info sc)))
+    (xrr-free-screen-config-info sc))
+  nil)
 
+(declaim (ftype (function (foreign-pointer integer integer integer integer) 
+			  (values integer integer integer)) get-closest-video-mode))
 (defun get-closest-video-mode (dpy screen desired-width desired-height rate)
+  (declare (ignorable rate))
   (let ((sc (xrr-get-screen-info dpy (root-window dpy screen)))
 	(size-list (null-pointer))
 	(best-size -1)
@@ -84,6 +92,8 @@
 	  (values best-size width height))
 	(values 0 (display-width dpy screen) (display-height dpy screen)))))
 
+(declaim (ftype (function (foreign-pointer integer) (values list list))
+		get-available-display-modes))
 (defun get-available-display-modes (dpy screen)
   (with-foreign-objects ((count :int) (gl :int) (rgba :int) (dummy 'visual-info))
     (let ((rtn-list (get-visual-info dpy 0 dummy count))

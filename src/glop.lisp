@@ -80,12 +80,14 @@
 )
 
 (defun push-event (window evt)
+  (declare (type window window) (type event evt))
   "Artificially push an event into the event processing system.
    The pushed event is internal to glaw and never makes it to the underlying
    system."
   (setf (window-pushed-event window) evt))
 
 (defun push-close-event (window)
+  (declare (type window window))
   "Push an artificial :close event into the event processing system."
   (push-event window (make-event :type :close)))
 
@@ -104,6 +106,7 @@
 
 ;; method based event handling
 (defun dispatch-events (window &key blocking)
+  (declare (type window window))
   "Process all pending system events and call corresponding methods.
    When :blocking is non-nil calls event handling func that will block
    until an event occur.

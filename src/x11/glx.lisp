@@ -135,6 +135,8 @@
             (x-free vi)
           finally (return (mem-aref fb-configs 'fb-config best-fbc)))))))
 
+(declaim (ftype (function (foreign-pointer integer list) foreign-pointer) 
+                glx-choose-visual))
 (defun glx-choose-visual (dpy screen attribs)
   ;; remove value for boolean attributes
   (let ((filtered-attribs '()))
@@ -144,20 +146,19 @@
                   ((eq value nil) t)
                   (t (push value filtered-attribs)
                      (push attr filtered-attribs))))
-    (setf attribs filtered-attribs))
-  ;; create the foreign attribs list
-  (with-foreign-object (atts :int (1+ (length attribs)))
-    (loop for i below (length attribs)
-         for attr = (nth i attribs)
-       do (setf (mem-aref atts :int i)
-                (typecase attr
-                  (keyword (foreign-enum-value 'glx-attributes attr))
-                  (t attr))))
-    (setf (mem-aref atts :int (length attribs)) 0)
-    (let ((vis (%glx-choose-visual dpy screen atts)))
-      (when (null-pointer-p vis) 
-        (error "Unable to create visual info"))
-      vis)))
+    ;; create the foreign attribs list
+    (with-foreign-object (atts :int (1+ (length attribs)))
+      (loop for i below (length filtered-attribs)
+            for attr = (nth i filtered-attribs)
+            do (setf (mem-aref atts :int i)
+                     (typecase attr
+                       (keyword (foreign-enum-value 'glx-attributes attr))
+                       (t attr))))
+      (setf (mem-aref atts :int (length filtered-attribs)) 0)
+      (let ((vis (%glx-choose-visual dpy screen atts)))
+        (when (null-pointer-p vis) 
+          (error "Unable to create visual info"))
+        vis))))
 
 (defctype glx-context :pointer)
 
@@ -165,6 +166,8 @@
   (display-ptr :pointer) (visual-infos :pointer) (share-list glx-context)
   (redirect bool))
 
+(declaim (ftype (function (foreign-pointer foreign-pointer) foreign-pointer) 
+                glx-create-context))
 (defun glx-create-context (dpy visual)
   (let ((ctx (%glx-create-context dpy visual (null-pointer) 1)))
     (when (null-pointer-p ctx) 
@@ -208,6 +211,7 @@
 (defcfun ("glXQueryVersion" %glx-query-version) bool
   (display-ptr :pointer) (major :pointer) (minor :pointer))
 
+(declaim (ftype (function (foreign-pointer) (values integer integer)) glx-get-version))
 (defun glx-get-version (dpy)
   (with-foreign-objects ((major :int) (minor :int))
     (%glx-query-version dpy major minor)

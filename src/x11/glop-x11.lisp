@@ -4,46 +4,50 @@
 (in-package #:glop)
 
 (defun gl-get-proc-address (proc-name)
+  (declare (type string proc-name))
   (glop-glx:glx-get-proc-address proc-name))
 
 (defstruct (x11-window (:include window))
-  display      ;; X display ptr
-  screen       ;; X screen number
-  id           ;; X window ID
-  visual-infos ;; X visual format of the window
-  fb-config    ;; X framebuffer config
+  (display (cffi:null-pointer) :type cffi:foreign-pointer)         ;; X display ptr
+  (screen 0 :type integer)                                                   ;; X screen number
+  (id 0 :type integer)                                                           ;; X window ID
+  (visual-infos (cffi:null-pointer) :type cffi:foreign-pointer)  ;; X visual format of the window
+  (fb-config (cffi:null-pointer) :type cffi:foreign-pointer)      ;; X framebuffer config
   )
 
 (defstruct glx-context
-  ctx           ;; GL context ptr
-  display       ;; X display ptr
+  (ctx (cffi:null-pointer) :type cffi:foreign-pointer)          ;; GL context ptr
+  (display (cffi:null-pointer) :type cffi:foreign-pointer)    ;; X display ptr
   )
 
 (defun create-gl-context (win &key (make-current t) major minor)
-    (let ((ctx (make-glx-context :display (x11-window-display win))))
-      (setf (glx-context-ctx ctx)
-            (if (and major minor)
-                (glop-glx:glx-create-specific-context (x11-window-display win)
-                                                       (x11-window-fb-config win)
-                                                       `(:major-version ,major :minor-version ,minor))
-                (glop-glx:glx-create-context (x11-window-display win)
-                                              (x11-window-visual-infos win))))
-      (when make-current
-        (attach-gl-context win ctx))
-      (when (and major minor)
-        (glop-glx:correct-context? major minor))
-      ctx))
+  (declare (type x11-window win) (type boolean make-current))
+  (let ((ctx (make-glx-context :display (x11-window-display win))))
+    (setf (glx-context-ctx ctx)
+          (if (and major minor)
+              (glop-glx:glx-create-specific-context (x11-window-display win)
+                                                    (x11-window-fb-config win)
+                                                    `(:major-version ,major :minor-version ,minor))
+              (glop-glx:glx-create-context (x11-window-display win)
+                                           (x11-window-visual-infos win))))
+    (when make-current
+      (attach-gl-context win ctx))
+    (when (and major minor)
+      (glop-glx:correct-context? major minor))
+    ctx))
 
 (defun destroy-gl-context (ctx)
   (detach-gl-context ctx)
   (glop-glx:glx-destroy-context (glx-context-display ctx)
                                  (glx-context-ctx ctx)))
 
+(declaim (ftype (function (x11-window glx-context) null) attach-gl-context))
 (defun attach-gl-context (win ctx)
   (setf (window-gl-context win) ctx)
   (glop-glx:glx-make-current (glx-context-display ctx)
                               (x11-window-id win)
-                              (glx-context-ctx ctx)))
+                              (glx-context-ctx ctx))
+  nil)
 
 (defun detach-gl-context (ctx)
   (glop-glx:glx-release-context (glx-context-display ctx)))
@@ -124,6 +128,7 @@
           ;; return created window
         win))))
 
+(declaim (ftype (function (x11-window) null) toggle-fullscreen))
 (defun toggle-fullscreen (win)
   (with-accessors (
                    (display  x11-window-display)
@@ -147,14 +152,15 @@
           (setf fullscreen nil))
         (progn
           (setf previous-video-mode
-                (multiple-value-bind (width height depth)
+                (multiple-value-bind (depth width height)
                     (glop-xlib:get-current-display-mode display screen)
                   (make-video-mode width height depth)))
           (glop-xlib:set-video-mode display screen
                                     (glop-xlib:get-closest-video-mode display screen
                                                                       win-width win-height 0) 0)
           (glop-xlib:set-fullscreen id display t)
-          (setf fullscreen t)))))
+          (setf fullscreen t))))
+  nil)
 
 (defun show-window (win)
   (glop-xlib:x-map-raised (x11-window-display win) (x11-window-id win)))
@@ -167,6 +173,7 @@
   (glop-xlib:x-store-name (x11-window-display win) (x11-window-id win) title))
 
 (defun destroy-window (win)
+  (declare (type x11-window win))
   (with-accessors (
                    (display  x11-window-display)
                    (screen  x11-window-screen)
@@ -180,10 +187,13 @@
     (glop-xlib:x-destroy-window display id)
     (glop-xlib:x-close-display display)))
 
+(declaim (ftype (function (x11-window) null) swap-buffers))
 (defun swap-buffers (win)
   (glop-glx:glx-wait-gl)
-  (glop-glx:glx-swap-buffers (x11-window-display win) (x11-window-id win)))
+  (glop-glx:glx-swap-buffers (x11-window-display win) (x11-window-id win))
+  nil)
 
 (defun %next-event (win &key blocking)
+  (declare (type x11-window win))
   (glop-xlib:x-next-event (x11-window-display win) blocking))
 

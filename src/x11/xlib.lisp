@@ -22,6 +22,8 @@
 (defctype gcontext xid)
 (defctype keysym xid)
 
+(deftype window () 'integer)
+
 (defctype bool :int)
 
 (defcstruct _xdisplay)
@@ -349,6 +351,13 @@
   (border-width :int) (depth :int) (win-class x-window-class) (visual :pointer)
   (value-mask x-window-attributes-flags) (attributes set-window-attributes))
 
+(defcfun ("XSetWMProtocols" %x-set-wm-protocols) :int
+  (display-ptr :pointer)
+  (window window)
+  (protocols (:pointer x-atom))
+  (count :int))
+
+(declaim (ftype (function (window foreign-pointer boolean) null) set-fullscreen))
 (defun set-fullscreen (window dpy be-fullscreen)
   (let ((wm-state (x-intern-atom dpy "_NET_WM_STATE" nil))
         (fullscreen (x-intern-atom dpy "_NET_WM_STATE_FULLSCREEN" nil)))
@@ -363,14 +372,18 @@
           (setf (mem-aref l :long 0) (if be-fullscreen 1 0))
           (setf (mem-aref l :long 1) fullscreen)
           (setf (mem-aref l :long 2) 0))))  
-      (x-send-event dpy (x-default-root-window dpy) nil (foreign-bitfield-value 'x-event-mask-flags '(:structure-notify-mask)) msg))))
+      (x-send-event dpy (x-default-root-window dpy) nil (foreign-bitfield-value 'x-event-mask-flags '(:structure-notify-mask)) msg)))
+  nil)
 
+(declaim (ftype (function (string) foreign-pointer) x-open-display))
 (defun x-open-display (display-name)
   (let ((display (%x-open-display display-name)))
     (when (null-pointer-p display)
       (error "Unable to open display"))
     display))
 
+(declaim (ftype (function (foreign-pointer window integer integer foreign-pointer) window)
+                x-create-window))
 (defun x-create-window (dpy parent width height visual-infos)
   (let ((root-win (x-default-root-window dpy)))
     (with-foreign-slots ((visual-id visual depth) visual-infos visual-info)
@@ -385,10 +398,23 @@
                                   :structure-notify-mask
                                   :visibility-change-mask
                                   :pointer-motion-mask)))
-            (%x-create-window dpy parent 0 0 width height 0
-                              depth :input-output visual
-                              '(:cw-colormap :cw-event-mask)
-                              win-attrs)))))))
+            (let ((win (%x-create-window dpy parent 0 0 width height 0
+                                         depth :input-output visual
+                                         '(:cw-colormap :cw-event-mask)
+                                         win-attrs)))
+              (x-set-wm-protocols dpy win '("WM_DELETE_WINDOW" "WM_TAKE_FOCUS"))
+              win)))))))
+
+(declaim (ftype (function (foreign-pointer window list) null) x-set-wm-protocols))
+(defun x-set-wm-protocols (dpy win protocol-list)
+  (with-foreign-object (protocols 'x-atom (length protocol-list))
+    (loop
+      for index from 0
+      for protocol in protocol-list do
+        (setf (mem-aref protocols 'x-atom index) 
+              (x-intern-atom dpy protocol nil)))
+    (%x-set-wm-protocols dpy win protocols (length protocol-list)))
+  nil)
 
 (defcfun ("XDestroyWindow" x-destroy-window) :int
   (display-ptr :pointer) (win window))
@@ -414,10 +440,12 @@
 (defcfun ("XPending" %x-pending) :int
   (display-ptr :pointer))
 
-(defun x-pending-p (display-ptr)
-  (not (zerop (%x-pending display-ptr))))
+(defun x-pending-p (dpy)
+  (declare (type foreign-pointer dpy))
+  (not (zerop (%x-pending dpy))))
 
 (defun x-next-event (dpy &optional blocking)
+  (declare (type foreign-pointer dpy))
   (x-sync dpy 0)
   (with-foreign-object (evt 'x-event)
     (if blocking
@@ -427,6 +455,7 @@
                  (%x-next-event dpy evt)
                  (process-event evt))))))
 
+(declaim (ftype (function (integer) keyword) x-translate-mouse-button))
 (defun x-translate-mouse-button (button)
   (case button
     (1 :left-button)
@@ -438,6 +467,7 @@
 (let ((last-x 0)
       (last-y 0))
   (defun process-event (evt)
+    (declare (type foreign-pointer evt))
     "Process an X11 event into a GLOP event."
     (with-foreign-slots ((type) evt x-event)
       (case type
@@ -489,6 +519,7 @@
   (keysym-return :pointer) (status-in-out :pointer))
 
 (defun x-lookup-key (key-event)
+  (declare (type foreign-pointer key-event))
   "Returns either a char or an x-keysym-value keyword."
   (with-foreign-objects ((buffer :char #x20) (keysym 'keysym) (compose 'x-compose-status))
     (%x-lookup-string key-event buffer #x20 keysym compose)
@@ -502,6 +533,8 @@
   (height-return :pointer) (border-width-return :pointer)
   (depth-return :pointer))
 
+(declaim (ftype (function (foreign-pointer window) (values window integer integer integer 
+                                                           integer integer integer)) x-get-geometry))
 (defun x-get-geometry (dpy win)
   (with-foreign-objects ((root 'window) (x :int) (y :int)
                          (width :unsigned-int) (height :unsigned-int)
