@@ -430,28 +430,29 @@
   (display-ptr :pointer) (win window) (name :string))
 
 (defcfun ("XSync" x-sync) :int
-  (display-ptr :pointer) (discard bool))
+  (display-ptr :pointer) (discard :int))
 
 (defcfun ("XNextEvent" %x-next-event) :int
-  (display-ptr :pointer) (evt x-event))
+  (display-ptr :pointer) (evt (:pointer x-event)))
 
 (defcfun ("XPending" %x-pending) :int
   (display-ptr :pointer))
 
+(declaim (ftype (function (foreign-pointer) boolean) x-pending-p)
+         (inline x-pending-p))
 (defun x-pending-p (dpy)
-  (declare (type foreign-pointer dpy))
   (not (zerop (%x-pending dpy))))
 
-(defun x-next-event (dpy &optional blocking)
-  (declare (type foreign-pointer dpy))
+(declaim (ftype (function (foreign-pointer foreign-pointer glop::event boolean) glop::event)
+                x-next-event)
+         (inline x-next-event))
+(defun x-next-event (dpy evt glop-evt blocking)
   (x-sync dpy 0)
-  (with-foreign-object (evt 'x-event)
-    (if blocking
-        (progn (%x-next-event dpy evt)
-               (process-event evt))
-        (progn (when (x-pending-p dpy)
-                 (%x-next-event dpy evt)
-                 (process-event evt))))))
+  (cond 
+    (blocking (%x-next-event dpy evt))
+    ((x-pending-p dpy) (%x-next-event dpy evt))
+    (t (return-from x-next-event glop-evt)))
+  (process-event evt glop-evt))
 
 (declaim (ftype (function (integer) keyword) x-translate-mouse-button))
 (defun x-translate-mouse-button (button)
@@ -462,55 +463,57 @@
     (4 :wheel-up)
     (5 :wheel-down)))
 
-(let ((last-x 0)
-      (last-y 0))
-  (defun process-event (evt)
-    (declare (type foreign-pointer evt))
-    "Process an X11 event into a GLOP event."
-    (with-foreign-slots ((type) evt x-event)
-      (case type
-        (:key-press
-           (glop::make-event :type :key-press
-                             :key (x-lookup-key evt)))
-        (:key-release
-           (glop::make-event :type :key-release
-                             :key (x-lookup-key evt)))
-        (:button-press
+(declaim (ftype (function (foreign-pointer glop::event) glop::event) process-event))
+(defun process-event (evt glop-evt)
+  "Process an X11 event into a GLOP event."
+  (with-foreign-slots ((type) evt x-event)
+    (case type
+      (:key-press
+         (setf (glop:event-type glop-evt) :key-press)
+         (setf (glop:event-key glop-evt) (x-lookup-key evt)))
+      (:key-release
+         (setf (glop:event-type glop-evt) :key-release)
+         (setf (glop:event-key glop-evt) (x-lookup-key evt)))
+      (:button-press
          (with-foreign-slots ((button) evt x-button-pressed-event)
-           (glop::make-event :type :button-press
-                             :button (x-translate-mouse-button button))))
-        (:button-release
+           (setf (glop:event-type glop-evt) :button-press)
+           (setf (glop:event-button glop-evt) (x-translate-mouse-button button))))
+      (:button-release
          (with-foreign-slots ((button) evt x-button-pressed-event)
-           (glop::make-event :type :button-release
-                             :button (x-translate-mouse-button button))))
-        (:motion-notify
+           (setf (glop:event-type glop-evt) :button-release)
+           (setf (glop:event-button glop-evt) (x-translate-mouse-button button))))
+      (:motion-notify
          (with-foreign-slots ((x y) evt x-motion-event)
-           (let ((glop-evt (glop::make-event :type :mouse-motion
-                                             :x x :y y :dx (- x last-x) :dy (- y last-y))))
-             (setf last-x x last-y y)
-             glop-evt)))
-        (:expose
+           (setf (glop:event-type glop-evt) :mouse-motion)
+           (setf (glop:event-dx glop-evt) (- x (glop:event-x glop-evt)))
+           (setf (glop:event-dy glop-evt) (- y (glop:event-y glop-evt)))
+           (setf (glop:event-x glop-evt) x)
+           (setf (glop:event-y glop-evt) y)))
+      (:expose
          (with-foreign-slots ((display-ptr win) evt x-expose-event)
            (multiple-value-bind (root x y width height border-width depth)
                (x-get-geometry display-ptr win)
              (declare (ignorable x y root border-width depth))
-             (glop::make-event :type :expose
-                               :width width :height height))))
-        (:configure-notify
+             (setf (glop:event-type glop-evt) :expose)
+             (setf (glop:event-width glop-evt) width)
+             (setf (glop:event-height glop-evt) height))))
+      (:configure-notify
          (with-foreign-slots ((width height) evt x-configure-event)
-           (glop::make-event :type :configure
-                             :width width :height height)))
-        (:map-notify
-         (glop::make-event :type :show))
-        (:unmap-notify
-         (glop::make-event :type :hide))
-        (:client-message
+           (setf (glop:event-type glop-evt) :configure)
+           (setf (glop:event-width glop-evt) width)
+           (setf (glop:event-height glop-evt) height)))
+      (:map-notify
+         (setf (glop:event-type glop-evt) :show))
+      (:unmap-notify
+         (setf (glop:event-type glop-evt) :hide))
+      (:client-message
          (with-foreign-slots ((display-ptr message-type data) evt x-client-message-event)
            (with-foreign-slots ((l) data x-client-message-event-data)
              (let ((atom-name (x-get-atom-name display-ptr (mem-ref l :long))))
                (when (string= atom-name "WM_DELETE_WINDOW")
-                 (glop::make-event :type :close))))))
-        (t (format t "Unhandled X11 event: ~S~%" type))))))
+                 (setf (glop:event-type glop-evt) :close))))))
+      (t (format t "Unhandled X11 event: ~S~%" type))))
+  glop-evt)
 
 (defcfun ("XLookupString" %x-lookup-string) :int
   (evt x-key-event) (buffer-return :pointer) (bytes-buffer :int)

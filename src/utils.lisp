@@ -1,10 +1,34 @@
 (in-package #:glop)
 
+;;; Events handling
+(defstruct event
+  (type :no-event :type keyword)
+  key  ;; for :key-press :key-release
+  button     ;; for :button-press :button-release
+  (width 0 :type integer) 
+  (height 0 :type integer) ;; for :configure :expose :show
+  (x 0 :type integer) 
+  (y 0 :type integer)         ;; mouse position (all events)
+  (dx 0 :type integer)
+  (dy 0 :type integer)        ;; for :mouse-motion
+)
+
 (defstruct (video-mode
 	     (:constructor make-video-mode (width height depth)))
   (width 0 :type integer)
   (height 0 :type integer)
   (depth 0 :type integer))
+
+(declaim (ftype (function (event) event) to-no-event)
+	 (inline to-no-event))
+(defun to-no-event (evt)
+  (setf (event-type evt) :no-event)
+  evt)
+
+(declaim (ftype (function (event) boolean) event-p)
+	 (inline event-p))
+(defun event-p (evt)
+  (not (eq (event-type evt) :no-event)))
 
 ;; base window structure
 ;; all implementations should inherit from it
@@ -13,7 +37,8 @@
   (height 0 :type integer)
   (title "" :type string)
   gl-context
-  pushed-event
+  (pushed-event (make-event) :type event)
+  (glop-event (make-event) :type event)
   (fullscreen nil :type boolean)
   (previous-video-mode nil))
 

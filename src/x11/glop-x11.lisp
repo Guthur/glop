@@ -13,7 +13,7 @@
   (id 0 :type integer)                                                           ;; X window ID
   (visual-infos (cffi:null-pointer) :type cffi:foreign-pointer)  ;; X visual format of the window
   (fb-config (cffi:null-pointer) :type cffi:foreign-pointer)      ;; X framebuffer config
-  )
+  (x-event-ptr (cffi:foreign-alloc 'glop-xlib::x-event)))
 
 (defstruct glx-context
   (ctx (cffi:null-pointer) :type cffi:foreign-pointer)          ;; GL context ptr
@@ -187,13 +187,16 @@
     (glop-xlib:x-destroy-window display id)
     (glop-xlib:x-close-display display)))
 
-(declaim (ftype (function (x11-window) null) swap-buffers))
+(declaim (ftype (function (x11-window) null) swap-buffers)
+         (inline swap-buffers))
 (defun swap-buffers (win)
   (glop-glx:glx-wait-gl)
   (glop-glx:glx-swap-buffers (x11-window-display win) (x11-window-id win))
   nil)
 
-(defun %next-event (win &key blocking)
-  (declare (type x11-window win))
-  (glop-xlib:x-next-event (x11-window-display win) blocking))
+(declaim (ftype (function (x11-window &key (:blocking boolean)) glop::event) %next-event)
+         (inline %next-event))
+(defun %next-event (win &key (blocking nil))
+  (glop-xlib:x-next-event (x11-window-display win) (x11-window-x-event-ptr win) 
+                          (window-glop-event win) blocking))
 

@@ -69,50 +69,42 @@
   "Swaps GL buffers."
   (error 'not-implemented))
 
-;;; Events handling
-(defstruct event
-  type
-  width height ;; for :configure :expose :show
-  key          ;; for :key-press :key-release
-  button       ;; for :button-press :button-release
-  x y          ;; mouse position (all events)
-  dx dy        ;; for :mouse-motion
-)
-
+(declaim (ftype (function (window event) null) push-event)
+         (inline push-event))
 (defun push-event (window evt)
-  (declare (type window window) (type event evt))
   "Artificially push an event into the event processing system.
    The pushed event is internal to glaw and never makes it to the underlying
    system."
-  (setf (window-pushed-event window) evt))
+  (setf (window-pushed-event window) evt)
+  nil)
 
 (defun push-close-event (window)
   (declare (type window window))
   "Push an artificial :close event into the event processing system."
   (push-event window (make-event :type :close)))
 
+(declaim (ftype (function (window &key (:blocking boolean))event) next-event)
+         (inline next-event))
 (defdfun next-event (window &key blocking)
   "Returns next available event for manual processing.
    If :blocking is true wait until an event occur."
-  (let ((pushed-evt (window-pushed-event window)))
-    (if pushed-evt
-        (progn (setf (window-pushed-event window) nil)
-               pushed-evt)
-        (%next-event window :blocking blocking))))
+  (if (event-p (window-pushed-event window))
+      (window-pushed-event window)
+      (%next-event window :blocking blocking)))
 
 (defdfun %next-event (window &key blocking)
   "Real next-event implementation."
   (error 'not-implemented))
 
+(declaim (ftype (function (window &key (:blocking boolean)) boolean) dispatch-events))
 ;; method based event handling
-(defun dispatch-events (window &key blocking)
-  (declare (type window window))
+(defun dispatch-events (window &key (blocking nil))
   "Process all pending system events and call corresponding methods.
    When :blocking is non-nil calls event handling func that will block
    until an event occur.
    Returns NIL on :CLOSE event, T otherwise."
   (loop for evt = (next-event window :blocking blocking)
-    while evt
+    while (event-p evt)
     do  (case (event-type evt)
           (:key-press (on-key window :press (event-key evt)))
           (:key-release (on-key window :release (event-key evt)))
@@ -125,8 +117,8 @@
           (:close (on-close window)
                   (return-from dispatch-events nil))
           (t (format t "Unhandled event type: ~S~%" (event-type evt))))
+        (to-no-event evt)
     finally (return t)))
-
 
 (defgeneric on-key (window state key))
 (defgeneric on-button (window state button))
